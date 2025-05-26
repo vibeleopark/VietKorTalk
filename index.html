@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VietKorTalk - 실시간 통역기</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: auto;
+      background-color: #f9f9f9;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+    }
+    .form-group {
+      margin-top: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea,
+    .form-group button {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    .form-group button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .form-group button:hover {
+      background-color: #45a049;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+    .loading {
+      color: green;
+      font-weight: bold;
+      margin-top: 10px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h2>VietKorTalk – 실시간 통역기</h2>
+
+  <div class="form-group">
+    <label for="apikey">🔑 OpenAI API Key:</label>
+    <input id="apikey" type="password" placeholder="sk-..." oninput="saveApiKey()" />
+  </div>
+
+  <div class="form-group">
+    <label for="style">1. 번역 스타일:</label>
+    <select id="style">
+      <option value="직역">직역</option>
+      <option value="의역">의역</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="length">2. 문장 길이:</label>
+    <select id="length">
+      <option value="간결하게">간결하게</option>
+      <option value="보통">보통</option>
+      <option value="길게">길게</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="tone">3. 말투 스타일:</label>
+    <select id="tone">
+      <option value="연인처럼 다정하게">연인처럼 다정하게</option>
+      <option value="친구처럼 자연스럽게">친구처럼 자연스럽게</option>
+      <option value="비즈니스 공손하게">비즈니스 공손하게</option>
+      <option value="문어체로 정중하게">문어체로 정중하게</option>
+      <option value="반말로 장난스럽게">반말로 장난스럽게</option>
+      <option value="존댓말로 포멀하게">존댓말로 포멀하게</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="gender">4. 화자 성별:</label>
+    <select id="gender">
+      <option value="남성">남성</option>
+      <option value="여성">여성</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <button onclick="startLiveRecognition()">🎤 실시간 통역 시작</button>
+  </div>
+
+  <div class="form-group">
+    <label for="inputText">입력된 문장:</label>
+    <textarea id="inputText" placeholder="인식된 텍스트가 여기에 표시됩니다..."></textarea>
+  </div>
+
+  <div class="form-group">
+    <label for="outputText">번역 결과:</label>
+    <textarea id="outputText" placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
+  </div>
+
+  <div class="form-group">
+    <button onclick="speakText()">🔊 음성으로 다시 듣기</button>
+    <button onclick="copyOutputText()">📋 번역 결과 복사</button>
+  </div>
+
+  <p id="status" class="loading"></p>
+
+  <script>
+    const inputText = document.getElementById('inputText');
+    const outputText = document.getElementById('outputText');
+    const apikeyInput = document.getElementById('apikey');
+    const statusText = document.getElementById('status');
+
+    let recognition = null;
+    let lastSpeechTime = Date.now();
+    let autoTranslateTimer = null;
+
+    function saveApiKey() {
+      localStorage.setItem('openai_api_key', apikeyInput.value);
+    }
+
+    window.onload = () => {
+      const storedKey = localStorage.getItem('openai_api_key');
+      if (storedKey) apikeyInput.value = storedKey;
+    };
+
+    async function startLiveRecognition() {
+      recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      recognition.lang = 'ko-KR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = function (event) {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        inputText.value = transcript;
+        lastSpeechTime = Date.now();
+      };
+
+      recognition.onerror = function (event) {
+        statusText.textContent = "음성 인식 중 오류 발생: " + event.error;
+      };
+
+      recognition.onend = function () {
+        recognition.start();
+      };
+
+      recognition.start();
+
+      autoTranslateTimer = setInterval(() => {
+        const now = Date.now();
+        if (now - lastSpeechTime > 2000 && inputText.value.trim() !== '') {
+          translateText(true);
+          lastSpeechTime = Date.now() + 999999;
+        }
+      }, 1000);
+    }
+
+    async function translateText(autoSpeak = false) {
+      const style = document.getElementById('style').value;
+      const tone = document.getElementById('tone').value;
+      const gender = document.getElementById('gender').value;
+      const length = document.getElementById('length').value;
+      const userInput = inputText.value.trim();
+      const apiKey = localStorage.getItem('openai_api_key');
+
+      if (!apiKey) {
+        alert("API 키를 입력해 주세요.");
+        return;
+      }
+
+      if (!userInput) {
+        alert("번역할 텍스트를 입력해 주세요.");
+        return;
+      }
+
+      const systemPrompt = `너는 베트남어↔한국어 통역가야. 화자는 ${gender}이고, ${style} 기반으로 번역하고, 문장은 ${length} 표현으로, ${tone} 말투로 자연스럽게 표현해줘. 성별에 맞는 언어 표현을 사용해.`;
+
+      statusText.textContent = "🔄 번역 중입니다...";
+
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userInput }
+            ]
+          })
+        });
+
+        const data = await response.json();
+        if (data.choices && data.choices[0]) {
+          outputText.value = data.choices[0].message.content.trim();
+          if (autoSpeak) speakText();
+        } else {
+          outputText.value = "번역 결과를 받아올 수 없습니다.";
+        }
+      } catch (error) {
+        outputText.value = "오류가 발생했습니다: " + error.message;
+      } finally {
+        statusText.textContent = "";
+      }
+    }
+
+    function speakText() {
+      if (recognition) recognition.stop();
+      const utterance = new SpeechSynthesisUtterance(outputText.value);
+      const gender = document.getElementById('gender').value;
+      const voices = speechSynthesis.getVoices();
+      const lang = /[\u3131-\uD79D]/ugi.test(outputText.value) ? 'ko-KR' : 'vi-VN';
+      utterance.lang = lang;
+
+      const preferredVoice = voices.find(voice =>
+        voice.lang === lang &&
+        (gender === '남성' ? /male|man/i.test(voice.name + voice.voiceURI) : /female|woman/i.test(voice.name + voice.voiceURI))
+      );
+      if (preferredVoice) utterance.voice = preferredVoice;
+
+      utterance.onend = () => { if (recognition) recognition.start(); };
+      speechSynthesis.speak(utterance);
+    }
+
+    function copyOutputText() {
+      navigator.clipboard.writeText(outputText.value)
+        .then(() => alert("번역 결과가 복사되었습니다!"))
+        .catch(() => alert("복사 실패 😢"));
+    }
+  </script>
+</body>
+</html>
